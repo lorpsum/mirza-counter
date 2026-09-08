@@ -1,16 +1,28 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
+
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+  >
 
   <title>Mirza Counter</title>
 
   <style>
+
+    html,
     body {
       margin: 0;
-      min-height: 100vh;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+    }
 
+    body {
       display: flex;
       align-items: center;
       justify-content: center;
@@ -18,7 +30,10 @@
       background: #000;
       color: #fff;
 
-      font-family: Arial, Helvetica, sans-serif;
+      font-family:
+        Arial,
+        Helvetica,
+        sans-serif;
     }
 
     .counter {
@@ -26,24 +41,31 @@
     }
 
     .label {
+      margin-bottom: 15px;
+
       font-size: 18px;
       font-weight: 500;
+
       letter-spacing: 4px;
-      margin-bottom: 15px;
     }
 
     #count {
       font-size: 80px;
       line-height: 1;
+
       font-weight: 700;
     }
 
     #error {
       margin-top: 20px;
-      font-size: 13px;
+
+      font-size: 12px;
+
       color: #888;
     }
+
   </style>
+
 </head>
 
 <body>
@@ -62,49 +84,103 @@
 
   </div>
 
+
   <script>
+
     async function loadOrders() {
-      const countElement = document.getElementById("count");
-      const errorElement = document.getElementById("error");
+
+      const countElement =
+        document.getElementById("count");
+
+      const errorElement =
+        document.getElementById("error");
+
 
       try {
+
         errorElement.textContent = "";
 
-        const response = await fetch("/api/orders", {
-          cache: "no-store"
-        });
 
-        const data = await response.json();
-
-        if (!response.ok || data.error) {
-          throw new Error(
-            data.error || "Unable to load orders"
+        const response =
+          await fetch(
+            "/api/orders",
+            {
+              cache: "no-store"
+            }
           );
-        }
+
+
+        const data =
+          await response.json();
+
 
         if (
-          data.count === undefined ||
-          data.count === null ||
-          isNaN(Number(data.count))
+          !response.ok ||
+          data.error
         ) {
-          throw new Error("Invalid order count received");
+
+          throw new Error(
+            data.error ||
+            "Unable to load orders"
+          );
+
         }
 
+
+        const count =
+          Number(data.count);
+
+
+        if (
+          !Number.isFinite(count)
+        ) {
+
+          throw new Error(
+            "Invalid order count"
+          );
+
+        }
+
+
         countElement.textContent =
-          Number(data.count).toLocaleString("en-US");
+          count.toLocaleString("en-US");
+
 
       } catch (error) {
-        countElement.textContent = "—";
-        errorElement.textContent = error.message;
-        console.error(error);
+
+        console.error(
+          "COUNTER ERROR:",
+          error
+        );
+
+
+        countElement.textContent =
+          "—";
+
+
+        errorElement.textContent =
+          error.message;
+
       }
+
     }
+
 
     loadOrders();
 
-    // Actualisation toutes les 5 minutes
-    setInterval(loadOrders, 5 * 60 * 1000);
+
+    /*
+      Actualisation automatique
+      toutes les 5 minutes
+    */
+
+    setInterval(
+      loadOrders,
+      5 * 60 * 1000
+    );
+
   </script>
 
 </body>
+
 </html>
