@@ -3,108 +3,72 @@ export default async function handler(req, res) {
     const shop = process.env.SHOPIFY_SHOP;
     const clientId = process.env.SHOPIFY_CLIENT_ID;
     const clientSecret = process.env.SHOPIFY_CLIENT_SECRET;
-    const refreshToken = process.env.SHOPIFY_REFRESH_TOKEN;
 
-    if (!shop || !clientId || !clientSecret || !refreshToken) {
+    if (!shop || !clientId || !clientSecret) {
       return res.status(500).json({
         error: "Shopify credentials are missing"
       });
     }
 
     // ==========================================
-    // 1. REFRESH TOKEN
+    // 1. GET ACCESS TOKEN
     // ==========================================
 
-    const tokenUrl =
-      `https://${shop}.myshopify.com/admin/oauth/access_token`;
+    const tokenResponse = await fetch(
+      `https://${shop}.myshopify.com/admin/oauth/access_token`,
+      {
+        method: "POST",
 
-    const tokenResponse = await fetch(tokenUrl, {
-      method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "Accept": "application/json"
+        },
 
-      headers: {
-        "Content-Type":
-          "application/x-www-form-urlencoded",
-        "Accept":
-          "application/json"
-      },
+        body: new URLSearchParams({
+          grant_type: "client_credentials",
+          client_id: clientId,
+          client_secret: clientSecret
+        })
+      }
+    );
 
-      body: new URLSearchParams({
-        grant_type: "refresh_token",
-        client_id: clientId,
-        client_secret: clientSecret,
-        refresh_token: refreshToken
-      })
-    });
-
-    const tokenText =
-      await tokenResponse.text();
+    const tokenText = await tokenResponse.text();
 
     let tokenData;
 
     try {
-      tokenData =
-        JSON.parse(tokenText);
-    } catch (error) {
-
-      console.error(
-        "SHOPIFY TOKEN RAW RESPONSE:",
-        tokenText
-      );
-
+      tokenData = JSON.parse(tokenText);
+    } catch {
       return res.status(500).json({
-        error:
-          "Shopify token endpoint returned non-JSON",
-        status:
-          tokenResponse.status,
-        response:
-          tokenText.substring(0, 500)
+        error: "Shopify returned an invalid token response",
+        status: tokenResponse.status,
+        details: tokenText.substring(0, 500)
       });
     }
 
-    if (
-      !tokenResponse.ok ||
-      !tokenData.access_token
-    ) {
-
-      console.error(
-        "SHOPIFY TOKEN ERROR:",
-        tokenData
-      );
-
+    if (!tokenResponse.ok || !tokenData.access_token) {
       return res.status(500).json({
-        error:
-          "Shopify authentication failed",
-        status:
-          tokenResponse.status,
-        details:
-          tokenData
+        error: "Shopify authentication failed",
+        status: tokenResponse.status,
+        details: tokenData
       });
     }
 
-    const accessToken =
-      tokenData.access_token;
-
+    const accessToken = tokenData.access_token;
 
     // ==========================================
-    // 2. SHOPIFY GRAPHQL
+    // 2. GET TOTAL ORDERS
     // ==========================================
 
-    const graphqlUrl =
-      `https://${shop}.myshopify.com/admin/api/2026-07/graphql.json`;
-
-    const shopifyResponse =
-      await fetch(graphqlUrl, {
+    const shopifyResponse = await fetch(
+      `https://${shop}.myshopify.com/admin/api/2026-07/graphql.json`,
+      {
         method: "POST",
 
         headers: {
-          "Content-Type":
-            "application/json",
-
-          "Accept":
-            "application/json",
-
-          "X-Shopify-Access-Token":
-            accessToken
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "X-Shopify-Access-Token": accessToken
         },
 
         body: JSON.stringify({
@@ -117,107 +81,54 @@ export default async function handler(req, res) {
             }
           `
         })
-      });
+      }
+    );
 
-
-    const shopifyText =
-      await shopifyResponse.text();
+    const shopifyText = await shopifyResponse.text();
 
     let shopifyData;
 
     try {
-
-      shopifyData =
-        JSON.parse(shopifyText);
-
-    } catch (error) {
-
-      console.error(
-        "SHOPIFY GRAPHQL RAW RESPONSE:",
-        shopifyText
-      );
-
+      shopifyData = JSON.parse(shopifyText);
+    } catch {
       return res.status(500).json({
-        error:
-          "Shopify GraphQL returned non-JSON",
-        status:
-          shopifyResponse.status,
-        response:
-          shopifyText.substring(0, 500)
+        error: "Shopify API returned an invalid response",
+        status: shopifyResponse.status,
+        details: shopifyText.substring(0, 500)
       });
-
     }
 
-
-    if (
-      !shopifyResponse.ok ||
-      shopifyData.errors
-    ) {
-
-      console.error(
-        "SHOPIFY API ERROR:",
-        shopifyData
-      );
-
+    if (!shopifyResponse.ok || shopifyData.errors) {
       return res.status(500).json({
-        error:
-          "Shopify API error",
-        status:
-          shopifyResponse.status,
-        details:
-          shopifyData.errors ||
-          shopifyData
+        error: "Shopify API error",
+        status: shopifyResponse.status,
+        details: shopifyData.errors || shopifyData
       });
-
     }
 
+    const count = shopifyData?.data?.ordersCount?.count;
 
-    // ==========================================
-    // 3. ORDER COUNT
-    // ==========================================
-
-    const count =
-      shopifyData?.data?.ordersCount?.count;
-
-
-    if (
-      count === undefined ||
-      count === null
-    ) {
-
+    if (count === undefined || count === null) {
       return res.status(500).json({
-        error:
-          "Order count not found",
-        details:
-          shopifyData
+        error: "Order count not found",
+        details: shopifyData
       });
-
     }
 
-
     // ==========================================
-    // 4. SUCCESS
+    // 3. RETURN COUNT
     // ==========================================
 
     return res.status(200).json({
-      count:
-        Number(count)
+      count: Number(count)
     });
-
 
   } catch (error) {
-
-    console.error(
-      "SERVER ERROR:",
-      error
-    );
+    console.error(error);
 
     return res.status(500).json({
-      error:
-        "Server error",
-      details:
-        error.message
+      error: "Server error",
+      details: error.message
     });
-
   }
 }
