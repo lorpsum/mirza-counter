@@ -60,7 +60,6 @@ export default async function handler(req, res) {
 
     const now = new Date();
 
-    // Début de la journée en heure française
     const parisDate = new Intl.DateTimeFormat("en-CA", {
       timeZone: "Europe/Paris",
       year: "numeric",
@@ -71,7 +70,7 @@ export default async function handler(req, res) {
     const startOfDay = `${parisDate}T00:00:00+02:00`;
 
     // ==========================================
-    // 3. GET TODAY'S ORDERS
+    // 3. GET TODAY'S ORDERS + ITEMS SOLD
     // ==========================================
 
     const shopifyResponse = await fetch(
@@ -87,7 +86,21 @@ export default async function handler(req, res) {
 
         body: JSON.stringify({
           query: `
-            query OrdersCount($query: String) {
+            query Today'sOrders($query: String) {
+              orders(first: 250, query: $query) {
+                edges {
+                  node {
+                    lineItems(first: 250) {
+                      edges {
+                        node {
+                          quantity
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+
               ordersCount(query: $query) {
                 count
                 precision
@@ -123,17 +136,50 @@ export default async function handler(req, res) {
       });
     }
 
-    const count = shopifyData?.data?.ordersCount?.count;
+    // ==========================================
+    // 4. TOTAL ORDERS
+    // ==========================================
 
-    if (count === undefined || count === null) {
+    const ordersCount =
+      shopifyData?.data?.ordersCount?.count;
+
+    if (
+      ordersCount === undefined ||
+      ordersCount === null
+    ) {
       return res.status(500).json({
-        error: "Order count not found",
-        details: shopifyData
+        error: "Order count not found"
       });
     }
 
+    // ==========================================
+    // 5. TOTAL ITEMS SOLD
+    // ==========================================
+
+    let itemsSold = 0;
+
+    const orders =
+      shopifyData?.data?.orders?.edges || [];
+
+    for (const orderEdge of orders) {
+      const lineItems =
+        orderEdge?.node?.lineItems?.edges || [];
+
+      for (const itemEdge of lineItems) {
+        const quantity =
+          Number(itemEdge?.node?.quantity || 0);
+
+        itemsSold += quantity;
+      }
+    }
+
+    // ==========================================
+    // 6. RETURN RESULTS
+    // ==========================================
+
     return res.status(200).json({
-      count: Number(count)
+      orders: Number(ordersCount),
+      items: itemsSold
     });
 
   } catch (error) {
