@@ -59,6 +59,19 @@
       font-weight: 700;
     }
 
+    .items {
+      margin-top: 18px;
+
+      font-size: 15px;
+      font-weight: 400;
+
+      letter-spacing: 1px;
+    }
+
+    #itemsCount {
+      font-weight: 600;
+    }
+
     #error {
       margin-top: 20px;
 
@@ -83,6 +96,11 @@
       ...
     </div>
 
+    <div class="items">
+      ARTICLES SOLD:
+      <span id="itemsCount">...</span>
+    </div>
+
     <div id="error"></div>
 
   </div>
@@ -93,6 +111,9 @@
 
       const countElement =
         document.getElementById("count");
+
+      const itemsElement =
+        document.getElementById("itemsCount");
 
       const errorElement =
         document.getElementById("error");
@@ -122,19 +143,26 @@
           );
         }
 
-        const count =
-          Number(data.count);
+        const orders =
+          Number(data.orders);
+
+        const items =
+          Number(data.items);
 
         if (
-          !Number.isFinite(count)
+          !Number.isFinite(orders) ||
+          !Number.isFinite(items)
         ) {
           throw new Error(
-            "Invalid order count"
+            "Invalid order data"
           );
         }
 
         countElement.textContent =
-          count.toLocaleString("en-US");
+          orders.toLocaleString("en-US");
+
+        itemsElement.textContent =
+          items.toLocaleString("en-US");
 
       } catch (error) {
 
@@ -144,6 +172,8 @@
         );
 
         countElement.textContent = "—";
+
+        itemsElement.textContent = "—";
 
         errorElement.textContent =
           error.message;
