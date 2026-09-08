@@ -18,10 +18,12 @@ export default async function handler(req, res) {
       `https://${shop}.myshopify.com/admin/oauth/access_token`,
       {
         method: "POST",
+
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
           "Accept": "application/json"
         },
+
         body: new URLSearchParams({
           grant_type: "client_credentials",
           client_id: clientId,
@@ -55,22 +57,7 @@ export default async function handler(req, res) {
     const accessToken = tokenData.access_token;
 
     // ==========================================
-    // 2. TODAY'S DATE
-    // ==========================================
-
-    const now = new Date();
-
-    const parisDate = new Intl.DateTimeFormat("en-CA", {
-      timeZone: "Europe/Paris",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit"
-    }).format(now);
-
-    const startOfDay = `${parisDate}T00:00:00+02:00`;
-
-    // ==========================================
-    // 3. GET TODAY'S ORDERS + ITEMS SOLD
+    // 2. GET TOTAL ORDERS
     // ==========================================
 
     const shopifyResponse = await fetch(
@@ -86,30 +73,13 @@ export default async function handler(req, res) {
 
         body: JSON.stringify({
           query: `
-            query Today'sOrders($query: String) {
-              orders(first: 250, query: $query) {
-                edges {
-                  node {
-                    lineItems(first: 250) {
-                      edges {
-                        node {
-                          quantity
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-
-              ordersCount(query: $query) {
+            query {
+              ordersCount {
                 count
                 precision
               }
             }
-          `,
-          variables: {
-            query: `created_at:>=${startOfDay}`
-          }
+          `
         })
       }
     );
@@ -136,50 +106,21 @@ export default async function handler(req, res) {
       });
     }
 
-    // ==========================================
-    // 4. TOTAL ORDERS
-    // ==========================================
+    const count = shopifyData?.data?.ordersCount?.count;
 
-    const ordersCount =
-      shopifyData?.data?.ordersCount?.count;
-
-    if (
-      ordersCount === undefined ||
-      ordersCount === null
-    ) {
+    if (count === undefined || count === null) {
       return res.status(500).json({
-        error: "Order count not found"
+        error: "Order count not found",
+        details: shopifyData
       });
     }
 
     // ==========================================
-    // 5. TOTAL ITEMS SOLD
-    // ==========================================
-
-    let itemsSold = 0;
-
-    const orders =
-      shopifyData?.data?.orders?.edges || [];
-
-    for (const orderEdge of orders) {
-      const lineItems =
-        orderEdge?.node?.lineItems?.edges || [];
-
-      for (const itemEdge of lineItems) {
-        const quantity =
-          Number(itemEdge?.node?.quantity || 0);
-
-        itemsSold += quantity;
-      }
-    }
-
-    // ==========================================
-    // 6. RETURN RESULTS
+    // 3. RETURN COUNT
     // ==========================================
 
     return res.status(200).json({
-      orders: Number(ordersCount),
-      items: itemsSold
+      count: Number(count)
     });
 
   } catch (error) {
