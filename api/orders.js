@@ -1,49 +1,24 @@
 export default async function handler(req, res) {
   try {
     const shop = process.env.SHOPIFY_SHOP;
-    const clientId = process.env.SHOPIFY_CLIENT_ID;
-    const clientSecret = process.env.SHOPIFY_CLIENT_SECRET;
+    const accessToken = process.env.SHOPIFY_ACCESS_TOKEN;
 
-    if (!shop || !clientId || !clientSecret) {
+    if (!shop || !accessToken) {
       return res.status(500).json({
         error: "Shopify credentials are missing"
       });
     }
 
-    // Obtenir un access token Shopify
-    const tokenResponse = await fetch(
-      `https://${shop}.myshopify.com/admin/oauth/access_token`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded"
-        },
-        body: new URLSearchParams({
-          grant_type: "client_credentials",
-          client_id: clientId,
-          client_secret: clientSecret
-        })
-      }
-    );
-
-    const tokenData = await tokenResponse.json();
-
-    if (!tokenResponse.ok || !tokenData.access_token) {
-      return res.status(500).json({
-        error: "Shopify authentication failed",
-        details: tokenData
-      });
-    }
-
-    // Interroger Shopify
-    const shopifyResponse = await fetch(
+    const response = await fetch(
       `https://${shop}.myshopify.com/admin/api/2026-07/graphql.json`,
       {
         method: "POST",
+
         headers: {
           "Content-Type": "application/json",
-          "X-Shopify-Access-Token": tokenData.access_token
+          "X-Shopify-Access-Token": accessToken
         },
+
         body: JSON.stringify({
           query: `
             query {
@@ -57,20 +32,33 @@ export default async function handler(req, res) {
       }
     );
 
-    const data = await shopifyResponse.json();
+    const data = await response.json();
 
-    if (!shopifyResponse.ok || data.errors) {
+    if (!response.ok || data.errors) {
+      console.error("SHOPIFY API ERROR:", data);
+
       return res.status(500).json({
         error: "Shopify API error",
         details: data.errors || data
       });
     }
 
+    const count = data?.data?.ordersCount?.count;
+
+    if (count === undefined || count === null) {
+      return res.status(500).json({
+        error: "Order count not found",
+        details: data
+      });
+    }
+
     return res.status(200).json({
-      count: data.data.ordersCount.count
+      count: Number(count)
     });
 
   } catch (error) {
+    console.error("SERVER ERROR:", error);
+
     return res.status(500).json({
       error: "Server error",
       details: error.message
