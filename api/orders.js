@@ -18,12 +18,10 @@ export default async function handler(req, res) {
       `https://${shop}.myshopify.com/admin/oauth/access_token`,
       {
         method: "POST",
-
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
           "Accept": "application/json"
         },
-
         body: new URLSearchParams({
           grant_type: "client_credentials",
           client_id: clientId,
@@ -57,7 +55,23 @@ export default async function handler(req, res) {
     const accessToken = tokenData.access_token;
 
     // ==========================================
-    // 2. GET TOTAL ORDERS
+    // 2. TODAY'S DATE
+    // ==========================================
+
+    const now = new Date();
+
+    // Début de la journée en heure française
+    const parisDate = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Europe/Paris",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    }).format(now);
+
+    const startOfDay = `${parisDate}T00:00:00+02:00`;
+
+    // ==========================================
+    // 3. GET TODAY'S ORDERS
     // ==========================================
 
     const shopifyResponse = await fetch(
@@ -73,13 +87,16 @@ export default async function handler(req, res) {
 
         body: JSON.stringify({
           query: `
-            query {
-              ordersCount {
+            query OrdersCount($query: String) {
+              ordersCount(query: $query) {
                 count
                 precision
               }
             }
-          `
+          `,
+          variables: {
+            query: `created_at:>=${startOfDay}`
+          }
         })
       }
     );
@@ -114,10 +131,6 @@ export default async function handler(req, res) {
         details: shopifyData
       });
     }
-
-    // ==========================================
-    // 3. RETURN COUNT
-    // ==========================================
 
     return res.status(200).json({
       count: Number(count)
