@@ -1,3 +1,4 @@
+
 export default async function handler(req, res) {
   try {
     const shop = process.env.SHOPIFY_SHOP;
@@ -10,9 +11,7 @@ export default async function handler(req, res) {
       });
     }
 
-    // ==========================================
-    // 1. GET ACCESS TOKEN
-    // ==========================================
+    // 1. RÉCUPÉRER LE TOKEN SHOPIFY
 
     const tokenResponse = await fetch(
       `https://${shop}.myshopify.com/admin/oauth/access_token`,
@@ -38,9 +37,8 @@ export default async function handler(req, res) {
       tokenData = JSON.parse(tokenText);
     } catch {
       return res.status(500).json({
-        error: "Shopify returned an invalid token response",
-        status: tokenResponse.status,
-        details: tokenText.substring(0, 500)
+        error: "Invalid Shopify token response",
+        status: tokenResponse.status
       });
     }
 
@@ -54,48 +52,70 @@ export default async function handler(req, res) {
 
     const accessToken = tokenData.access_token;
 
-    // ==========================================
-    // 2. TODAY'S DATE
-    // ==========================================
+    // 2. RÉCUPÉRER LES DATES DEMANDÉES
+    // Format attendu : YYYY-MM-DD
+    // Exemple : /api/orders?start=2026-09-01&end=2026-09-30
 
-    const now = new Date();
+    const { start, end } = req.query || {};
 
-    // Début de la journée en heure française
-    const parisDate = new Intl.DateTimeFormat("en-CA", {
-      timeZone: "Europe/Paris",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit"
-    }).format(now);
+    const isValidDate = (value) => {
+      if (typeof value !== "string") return false;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
 
-    const startOfDay = `${parisDate}T00:00:00+02:00`;
+      const date = new Date(`${value}T00:00:00Z`);
 
-    // ==========================================
-    // 3. GET TODAY'S ORDERS
-    // ==========================================
+      return !Number.isNaN(date.getTime()) &&
+        date.toISOString().slice(0, 10) === value;
+    };
+
+    if (!isValidDate(start) || !isValidDate(end)) {
+      return res.status(400).json({
+        error: "Please provide valid start and end dates",
+        example: "/api/orders?start=2026-09-01&end=2026-09-30"
+      });
+    }
+
+    if (start > end) {
+      return res.status(400).json({
+        error: "The start date must be before or equal to the end date"
+      });
+    }
+
+    // 3. CONSTRUIRE LA PÉRIODE
+    // Dates interprétées en heure de Paris.
+    // La borne de fin est exclusive : on ajoute un jour à end.
+
+    const startDate = new Date(`${start}T00:00:00+01:00`);
+    const endDate = new Date(`${end}T00:00:00+01:00`);
+    endDate.setUTCDate(endDate.getUTCDate() + 1);
+
+    const isoDate = (date) => date.toISOString();
+
+    const startISO = isoDate(startDate);
+    const endISO = isoDate(endDate);
+
+    // 4. COMPTER LES COMMANDES SHOPIFY
 
     const shopifyResponse = await fetch(
       `https://${shop}.myshopify.com/admin/api/2026-07/graphql.json`,
       {
         method: "POST",
-
         headers: {
           "Content-Type": "application/json",
           "Accept": "application/json",
           "X-Shopify-Access-Token": accessToken
         },
-
         body: JSON.stringify({
           query: `
-            query OrdersCount($query: String) {
-              ordersCount(query: $query) {
+            query OrdersCount($query: String!) {
+              ordersCount(query: $query, limit: null) {
                 count
                 precision
               }
             }
           `,
           variables: {
-            query: `created_at:>=${startOfDay}`
+            query: `created_at:>=${startISO} created_at:<${endISO}`
           }
         })
       }
@@ -109,7 +129,7 @@ export default async function handler(req, res) {
       shopifyData = JSON.parse(shopifyText);
     } catch {
       return res.status(500).json({
-        error: "Shopify API returned an invalid response",
+        error: "Invalid Shopify API response",
         status: shopifyResponse.status,
         details: shopifyText.substring(0, 500)
       });
@@ -123,21 +143,27 @@ export default async function handler(req, res) {
       });
     }
 
-    const count = shopifyData?.data?.ordersCount?.count;
+    const result = shopifyData?.data?.ordersCount;
 
-    if (count === undefined || count === null) {
+    if (result?.count === undefined || result?.count === null) {
       return res.status(500).json({
         error: "Order count not found",
         details: shopifyData
       });
     }
 
+    // 5. RENVOYER LE RÉSULTAT
+
     return res.status(200).json({
-      count: Number(count)
+      count: Number(result.count),
+      precision: result.precision,
+      start,
+      end,
+      timezone: "Europe/Paris"
     });
 
   } catch (error) {
-    console.error(error);
+    console.error("Orders API error:", error);
 
     return res.status(500).json({
       error: "Server error",
