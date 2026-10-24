@@ -36,10 +36,11 @@
     }
 
     .label {
-      font-size: 15px;
+      margin-bottom: 24px;
+      font-size: clamp(12px, 3vw, 16px);
       font-weight: 500;
-      letter-spacing: 4px;
-      margin-bottom: 18px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
     }
 
     #revenue {
@@ -50,25 +51,18 @@
       font-variant-numeric: tabular-nums;
     }
 
-    .currency-label {
-      margin-top: 10px;
-      color: #777;
-      font-size: 10px;
-      letter-spacing: 2px;
-    }
-
     .orders-block {
-      margin: 32px 0;
+      margin: 24px 0 32px;
     }
 
     .orders-label {
-      font-size: 11px;
+      margin-bottom: 8px;
+      font-size: 10px;
       letter-spacing: 3px;
-      margin-bottom: 10px;
     }
 
     #count {
-      font-size: 30px;
+      font-size: 24px;
       font-weight: 600;
       font-variant-numeric: tabular-nums;
     }
@@ -127,14 +121,23 @@
     }
 
     #period {
-      margin-top: 16px;
+      margin-top: 14px;
       color: #777;
       font-size: 10px;
       letter-spacing: 1px;
     }
 
+    .disclaimer {
+      margin-top: 30px;
+      color: #777;
+      font-size: 8px;
+      line-height: 1.6;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+
     #error {
-      margin-top: 16px;
+      margin-top: 12px;
       color: #b00020;
       font-size: 12px;
       overflow-wrap: anywhere;
@@ -155,31 +158,35 @@
 <body>
   <main class="counter">
 
-    <div class="label">TOTAL REVENUE</div>
+    <div class="label">VENTES NETTES HORS COMMISSION</div>
 
     <div id="revenue">—</div>
-    <div class="currency-label">GROSS ORDER REVENUE</div>
 
     <div class="orders-block">
-      <div class="orders-label">TOTAL ORDERS</div>
+      <div class="orders-label">TOTAL COMMANDES</div>
       <div id="count">—</div>
     </div>
 
     <div class="dates">
       <div class="date-field">
-        <label for="start">FROM</label>
+        <label for="start">DU</label>
         <input type="date" id="start" required>
       </div>
 
       <div class="date-field">
-        <label for="end">TO</label>
+        <label for="end">AU</label>
         <input type="date" id="end" required>
       </div>
     </div>
 
-    <button id="submit" type="button">UPDATE COUNTER</button>
+    <button id="submit" type="button">ACTUALISER</button>
 
     <div id="period"></div>
+
+    <div class="disclaimer">
+      VENTES APRÈS DÉDUCTION DES TAXES ET TARIFS D'EXPÉDITION
+    </div>
+
     <div id="error" role="status" aria-live="polite"></div>
 
   </main>
@@ -231,18 +238,18 @@
       periodElement.textContent = "";
 
       if (!start || !end) {
-        errorElement.textContent = "Please select both dates.";
+        errorElement.textContent = "Sélectionne les deux dates.";
         return;
       }
 
       if (start > end) {
         errorElement.textContent =
-          "The start date must be before or equal to the end date.";
+          "La date de début doit précéder la date de fin.";
         return;
       }
 
       submitButton.disabled = true;
-      submitButton.textContent = "LOADING...";
+      submitButton.textContent = "CHARGEMENT...";
       revenueElement.textContent = "…";
       countElement.textContent = "…";
 
@@ -257,14 +264,14 @@
         const data = await response.json();
 
         if (!response.ok || data.error) {
-          throw new Error(data.error || "Unable to load orders.");
+          throw new Error(data.error || "Impossible de charger les ventes.");
         }
 
-        const revenue = Number(data.revenue);
+        const revenue = Number(data.netSales);
         const count = Number(data.count);
 
         if (!Number.isFinite(revenue) || !Number.isFinite(count)) {
-          throw new Error("Invalid Shopify response.");
+          throw new Error("Réponse Shopify invalide.");
         }
 
         revenueElement.textContent =
@@ -283,7 +290,7 @@
 
       } finally {
         submitButton.disabled = false;
-        submitButton.textContent = "UPDATE COUNTER";
+        submitButton.textContent = "ACTUALISER";
       }
     }
 
