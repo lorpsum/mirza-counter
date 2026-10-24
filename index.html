@@ -146,7 +146,6 @@
       font-size: 11px;
       font-weight: 500;
       letter-spacing: 3px;
-      text-align: left;
     }
 
     #products-list {
@@ -199,7 +198,6 @@
 
 <body>
   <main class="counter">
-
     <div class="label">VENTES NETTES HORS COMMISSION</div>
 
     <div id="revenue">—</div>
@@ -235,7 +233,6 @@
     </section>
 
     <div id="error" role="status" aria-live="polite"></div>
-
   </main>
 
   <script>
@@ -306,7 +303,6 @@
     }
 
     const today = parisToday();
-
     startInput.value = today.slice(0, 7) + "-01";
     endInput.value = today;
 
@@ -381,7 +377,6 @@
     }
 
     submitButton.addEventListener("click", loadOrders);
-
     loadOrders();
   </script>
 </body>
