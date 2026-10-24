@@ -7,12 +7,11 @@ export default async function handler(req, res) {
 
     if (!shop || !clientId || !clientSecret) {
       return res.status(500).json({
-        error: "Shopify credentials are missing"
+        error: "Variables Shopify manquantes."
       });
     }
 
-    // 1. AUTHENTIFICATION
-
+    // AUTHENTIFICATION SHOPIFY
     const tokenResponse = await fetch(
       `https://${shop}.myshopify.com/admin/oauth/access_token`,
       {
@@ -29,36 +28,24 @@ export default async function handler(req, res) {
       }
     );
 
-    const tokenText = await tokenResponse.text();
-    let tokenData;
-
-    try {
-      tokenData = JSON.parse(tokenText);
-    } catch {
-      return res.status(500).json({
-        error: "Invalid Shopify token response"
-      });
-    }
+    const tokenData = await tokenResponse.json();
 
     if (!tokenResponse.ok || !tokenData.access_token) {
       return res.status(500).json({
-        error: "Shopify authentication failed",
-        status: tokenResponse.status,
-        details: tokenData
+        error: "Authentification Shopify impossible."
       });
     }
 
     const accessToken = tokenData.access_token;
 
-    // 2. VALIDATION DES DATES
-
+    // VALIDATION DES DATES
     const { start, end } = req.query || {};
 
     function isValidDate(value) {
       if (typeof value !== "string") return false;
       if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
 
-      const date = new Date(`${value}T00:00:00Z`);
+      const date = new Date(`${value}T00:00:00.000Z`);
 
       return !Number.isNaN(date.getTime()) &&
         date.toISOString().slice(0, 10) === value;
@@ -66,18 +53,17 @@ export default async function handler(req, res) {
 
     if (!isValidDate(start) || !isValidDate(end)) {
       return res.status(400).json({
-        error: "Please provide valid start and end dates"
+        error: "Dates invalides. Utilise YYYY-MM-DD."
       });
     }
 
     if (start > end) {
       return res.status(400).json({
-        error: "The start date must be before or equal to the end date"
+        error: "La date de début doit précéder la date de fin."
       });
     }
 
-    // 3. MINUIT À PARIS, AVEC GESTION DU CHANGEMENT D'HEURE
-
+    // CONVERSION DES MINUITS EN HEURE DE PARIS
     function parisMidnight(dateString) {
       const reference = new Date(`${dateString}T12:00:00Z`);
 
@@ -111,18 +97,18 @@ export default async function handler(req, res) {
     ).toISOString();
 
     const searchQuery =
-      `created_at:>=${startISO} created_at:<${endISO}`;
+      `created_at:>=${startISO} created_at:<${endISO} -cancelled_at:*`;
 
-    // 4. RÉCUPÉRATION DES COMMANDES ET CALCUL DES VENTES NETTES
-    // Sous-total actuel des articles, après remises,
-    // hors taxes et frais d'expédition.
-
+    // RÉSULTATS
     let count = 0;
     let netSales = 0;
     let cursor = null;
     let hasNextPage = true;
     let currencyCode = null;
 
+    const products = {};
+
+    // RÉCUPÉRATION DE TOUTES LES COMMANDES
     while (hasNextPage) {
       const shopifyResponse = await fetch(
         `https://${shop}.myshopify.com/admin/api/2026-07/graphql.json`,
@@ -140,18 +126,26 @@ export default async function handler(req, res) {
                 $after: String
               ) {
                 orders(
-                  first: 250,
+                  first: 100,
                   after: $after,
                   query: $query,
                   sortKey: CREATED_AT
                 ) {
                   edges {
-                    cursor
                     node {
                       currentSubtotalPriceSet {
                         shopMoney {
                           amount
                           currencyCode
+                        }
+                      }
+                      lineItems(first: 250) {
+                        nodes {
+                          title
+                          currentQuantity
+                          product {
+                            title
+                          }
                         }
                       }
                     }
@@ -171,22 +165,11 @@ export default async function handler(req, res) {
         }
       );
 
-      const shopifyText = await shopifyResponse.text();
-      let shopifyData;
-
-      try {
-        shopifyData = JSON.parse(shopifyText);
-      } catch {
-        return res.status(500).json({
-          error: "Invalid Shopify API response",
-          details: shopifyText.substring(0, 500)
-        });
-      }
+      const shopifyData = await shopifyResponse.json();
 
       if (!shopifyResponse.ok || shopifyData.errors) {
         return res.status(500).json({
-          error: "Shopify API error",
-          status: shopifyResponse.status,
+          error: "Erreur lors de la récupération des commandes Shopify.",
           details: shopifyData.errors || shopifyData
         });
       }
@@ -195,37 +178,50 @@ export default async function handler(req, res) {
 
       if (!orders) {
         return res.status(500).json({
-          error: "Shopify orders data not found"
+          error: "Données des commandes introuvables."
         });
       }
 
       for (const edge of orders.edges) {
-        const money =
-          edge.node.currentSubtotalPriceSet?.shopMoney;
+        const order = edge.node;
+        const money = order.currentSubtotalPriceSet?.shopMoney;
 
-        if (!money) {
-          return res.status(500).json({
-            error: "Order subtotal not found"
-          });
+        if (money) {
+          const amount = Number(money.amount);
+
+          if (Number.isFinite(amount)) {
+            if (
+              currencyCode &&
+              currencyCode !== money.currencyCode
+            ) {
+              return res.status(500).json({
+                error: "Plusieurs devises sont présentes dans les commandes."
+              });
+            }
+
+            currencyCode = money.currencyCode;
+            netSales += amount;
+          }
         }
 
-        const amount = Number(money.amount);
-
-        if (!Number.isFinite(amount)) {
-          return res.status(500).json({
-            error: "Invalid order amount"
-          });
-        }
-
-        if (currencyCode && currencyCode !== money.currencyCode) {
-          return res.status(500).json({
-            error: "Orders use different shop currencies"
-          });
-        }
-
-        currencyCode = money.currencyCode;
-        netSales += amount;
         count++;
+
+        // REGROUPEMENT DES VARIANTES SOUS LE NOM DU PRODUIT
+        for (const item of order.lineItems.nodes || []) {
+          const productName =
+            item.product?.title ||
+            item.title;
+
+          const quantity = Number(item.currentQuantity) || 0;
+
+          if (!productName || quantity <= 0) continue;
+
+          if (!Object.prototype.hasOwnProperty.call(products, productName)) {
+            products[productName] = 0;
+          }
+
+          products[productName] += quantity;
+        }
       }
 
       hasNextPage = orders.pageInfo.hasNextPage;
@@ -233,15 +229,27 @@ export default async function handler(req, res) {
 
       if (hasNextPage && !cursor) {
         return res.status(500).json({
-          error: "Shopify pagination cursor missing"
+          error: "Pagination Shopify incomplète."
         });
       }
     }
+
+    // TRI DU PLUS VENDU AU MOINS VENDU
+    const soldProducts = Object.entries(products)
+      .map(([name, quantity]) => ({
+        name,
+        quantity
+      }))
+      .sort((a, b) =>
+        b.quantity - a.quantity ||
+        a.name.localeCompare(b.name)
+      );
 
     return res.status(200).json({
       count,
       netSales: Number(netSales.toFixed(2)),
       currency: currencyCode || "EUR",
+      products: soldProducts,
       start,
       end,
       timezone: "Europe/Paris"
@@ -251,7 +259,7 @@ export default async function handler(req, res) {
     console.error("Orders API error:", error);
 
     return res.status(500).json({
-      error: "Server error",
+      error: "Erreur serveur.",
       details: error.message
     });
   }
