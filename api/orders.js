@@ -11,7 +11,7 @@ export default async function handler(req, res) {
       });
     }
 
-    // AUTHENTIFICATION SHOPIFY
+    // 1. AUTHENTIFICATION
     const tokenResponse = await fetch(
       `https://${shop}.myshopify.com/admin/oauth/access_token`,
       {
@@ -32,13 +32,14 @@ export default async function handler(req, res) {
 
     if (!tokenResponse.ok || !tokenData.access_token) {
       return res.status(500).json({
-        error: "Authentification Shopify impossible."
+        error: "Authentification Shopify impossible.",
+        details: tokenData
       });
     }
 
     const accessToken = tokenData.access_token;
 
-    // VALIDATION DES DATES
+    // 2. VALIDATION DES DATES
     const { start, end } = req.query || {};
 
     function isValidDate(value) {
@@ -53,7 +54,7 @@ export default async function handler(req, res) {
 
     if (!isValidDate(start) || !isValidDate(end)) {
       return res.status(400).json({
-        error: "Dates invalides. Utilise YYYY-MM-DD."
+        error: "Dates invalides. Format attendu : YYYY-MM-DD."
       });
     }
 
@@ -63,7 +64,7 @@ export default async function handler(req, res) {
       });
     }
 
-    // CONVERSION DES MINUITS EN HEURE DE PARIS
+    // 3. MINUIT EN HEURE DE PARIS
     function parisMidnight(dateString) {
       const reference = new Date(`${dateString}T12:00:00Z`);
 
@@ -99,7 +100,7 @@ export default async function handler(req, res) {
     const searchQuery =
       `created_at:>=${startISO} created_at:<${endISO} -cancelled_at:*`;
 
-    // RÉSULTATS
+    // 4. COMMANDES, VENTES ET ARTICLES
     let count = 0;
     let netSales = 0;
     let cursor = null;
@@ -108,7 +109,6 @@ export default async function handler(req, res) {
 
     const products = {};
 
-    // RÉCUPÉRATION DE TOUTES LES COMMANDES
     while (hasNextPage) {
       const shopifyResponse = await fetch(
         `https://${shop}.myshopify.com/admin/api/2026-07/graphql.json`,
@@ -143,9 +143,6 @@ export default async function handler(req, res) {
                         nodes {
                           title
                           currentQuantity
-                          product {
-                            title
-                          }
                         }
                       }
                     }
@@ -189,29 +186,31 @@ export default async function handler(req, res) {
         if (money) {
           const amount = Number(money.amount);
 
-          if (Number.isFinite(amount)) {
-            if (
-              currencyCode &&
-              currencyCode !== money.currencyCode
-            ) {
-              return res.status(500).json({
-                error: "Plusieurs devises sont présentes dans les commandes."
-              });
-            }
-
-            currencyCode = money.currencyCode;
-            netSales += amount;
+          if (!Number.isFinite(amount)) {
+            return res.status(500).json({
+              error: "Montant de commande invalide."
+            });
           }
+
+          if (
+            currencyCode &&
+            currencyCode !== money.currencyCode
+          ) {
+            return res.status(500).json({
+              error: "Plusieurs devises sont présentes dans les commandes."
+            });
+          }
+
+          currencyCode = money.currencyCode;
+          netSales += amount;
         }
 
         count++;
 
-        // REGROUPEMENT DES VARIANTES SOUS LE NOM DU PRODUIT
-        for (const item of order.lineItems.nodes || []) {
-          const productName =
-            item.product?.title ||
-            item.title;
-
+        // REGROUPEMENT PAR TITRE DE LIGNE
+        // Aucun accès au champ product n'est nécessaire.
+        for (const item of order.lineItems?.nodes || []) {
+          const productName = item.title;
           const quantity = Number(item.currentQuantity) || 0;
 
           if (!productName || quantity <= 0) continue;
@@ -234,7 +233,7 @@ export default async function handler(req, res) {
       }
     }
 
-    // TRI DU PLUS VENDU AU MOINS VENDU
+    // 5. TRI PAR QUANTITÉ VENDUE
     const soldProducts = Object.entries(products)
       .map(([name, quantity]) => ({
         name,
