@@ -23,7 +23,7 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      padding: 24px;
+      padding: 40px 24px;
       background: #fff;
       color: #000;
       font-family: Arial, Helvetica, sans-serif;
@@ -136,8 +136,46 @@
       text-transform: uppercase;
     }
 
+    .products-section {
+      margin-top: 32px;
+      text-align: left;
+    }
+
+    .products-title {
+      margin-bottom: 16px;
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 3px;
+      text-align: left;
+    }
+
+    #products-list {
+      font-size: 12px;
+      line-height: 1.9;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      overflow-wrap: anywhere;
+    }
+
+    .product-line {
+      display: flex;
+      justify-content: space-between;
+      gap: 20px;
+      padding: 5px 0;
+      border-bottom: 1px solid #eee;
+    }
+
+    .product-name {
+      flex: 1;
+    }
+
+    .product-quantity {
+      flex-shrink: 0;
+      text-align: right;
+    }
+
     #error {
-      margin-top: 12px;
+      margin-top: 16px;
       color: #b00020;
       font-size: 12px;
       overflow-wrap: anywhere;
@@ -149,6 +187,10 @@
       }
 
       input[type="date"] {
+        font-size: 11px;
+      }
+
+      #products-list {
         font-size: 11px;
       }
     }
@@ -187,6 +229,11 @@
       VENTES APRÈS DÉDUCTION DES TAXES ET TARIFS D'EXPÉDITION
     </div>
 
+    <section class="products-section">
+      <div class="products-title">ARTICLES VENDUS :</div>
+      <div id="products-list">—</div>
+    </section>
+
     <div id="error" role="status" aria-live="polite"></div>
 
   </main>
@@ -196,6 +243,7 @@
     const endInput = document.getElementById("end");
     const revenueElement = document.getElementById("revenue");
     const countElement = document.getElementById("count");
+    const productsElement = document.getElementById("products-list");
     const errorElement = document.getElementById("error");
     const periodElement = document.getElementById("period");
     const submitButton = document.getElementById("submit");
@@ -225,6 +273,32 @@
       }).format(amount);
     }
 
+    function displayProducts(products) {
+      productsElement.replaceChildren();
+
+      if (!products || products.length === 0) {
+        productsElement.textContent = "AUCUN ARTICLE VENDU";
+        return;
+      }
+
+      products.forEach(product => {
+        const line = document.createElement("div");
+        line.className = "product-line";
+
+        const name = document.createElement("span");
+        name.className = "product-name";
+        name.textContent = product.name;
+
+        const quantity = document.createElement("span");
+        quantity.className = "product-quantity";
+        quantity.textContent =
+          Number(product.quantity).toLocaleString("fr-FR");
+
+        line.append(name, quantity);
+        productsElement.appendChild(line);
+      });
+    }
+
     const today = parisToday();
 
     startInput.value = today.slice(0, 7) + "-01";
@@ -238,7 +312,8 @@
       periodElement.textContent = "";
 
       if (!start || !end) {
-        errorElement.textContent = "Sélectionne les deux dates.";
+        errorElement.textContent =
+          "Sélectionne les deux dates.";
         return;
       }
 
@@ -252,6 +327,7 @@
       submitButton.textContent = "CHARGEMENT...";
       revenueElement.textContent = "…";
       countElement.textContent = "…";
+      productsElement.textContent = "…";
 
       try {
         const params = new URLSearchParams({ start, end });
@@ -264,7 +340,9 @@
         const data = await response.json();
 
         if (!response.ok || data.error) {
-          throw new Error(data.error || "Impossible de charger les ventes.");
+          throw new Error(
+            data.error || "Impossible de charger les ventes."
+          );
         }
 
         const revenue = Number(data.netSales);
@@ -282,10 +360,13 @@
 
         periodElement.textContent = `${start} — ${end}`;
 
+        displayProducts(data.products);
+
       } catch (error) {
         console.error("COUNTER ERROR:", error);
         revenueElement.textContent = "—";
         countElement.textContent = "—";
+        productsElement.textContent = "—";
         errorElement.textContent = error.message;
 
       } finally {
