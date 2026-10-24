@@ -11,7 +11,7 @@ export default async function handler(req, res) {
       });
     }
 
-    // 1. AUTHENTIFICATION SHOPIFY
+    // 1. AUTHENTIFICATION
 
     const tokenResponse = await fetch(
       `https://${shop}.myshopify.com/admin/oauth/access_token`,
@@ -76,8 +76,7 @@ export default async function handler(req, res) {
       });
     }
 
-    // 3. CONVERSION DES DATES EN HEURE DE PARIS
-    // Gère automatiquement les changements d'heure été/hiver.
+    // 3. MINUIT À PARIS, AVEC GESTION DU CHANGEMENT D'HEURE
 
     function parisMidnight(dateString) {
       const reference = new Date(`${dateString}T12:00:00Z`);
@@ -114,11 +113,12 @@ export default async function handler(req, res) {
     const searchQuery =
       `created_at:>=${startISO} created_at:<${endISO}`;
 
-    // 4. RÉCUPÉRATION DE TOUTES LES COMMANDES
-    // 250 commandes par page, avec pagination Shopify.
+    // 4. RÉCUPÉRATION DES COMMANDES ET CALCUL DES VENTES NETTES
+    // Sous-total actuel des articles, après remises,
+    // hors taxes et frais d'expédition.
 
     let count = 0;
-    let revenue = 0;
+    let netSales = 0;
     let cursor = null;
     let hasNextPage = true;
     let currencyCode = null;
@@ -148,7 +148,7 @@ export default async function handler(req, res) {
                   edges {
                     cursor
                     node {
-                      totalPriceSet {
+                      currentSubtotalPriceSet {
                         shopMoney {
                           amount
                           currencyCode
@@ -200,7 +200,15 @@ export default async function handler(req, res) {
       }
 
       for (const edge of orders.edges) {
-        const money = edge.node.totalPriceSet.shopMoney;
+        const money =
+          edge.node.currentSubtotalPriceSet?.shopMoney;
+
+        if (!money) {
+          return res.status(500).json({
+            error: "Order subtotal not found"
+          });
+        }
+
         const amount = Number(money.amount);
 
         if (!Number.isFinite(amount)) {
@@ -216,7 +224,7 @@ export default async function handler(req, res) {
         }
 
         currencyCode = money.currencyCode;
-        revenue += amount;
+        netSales += amount;
         count++;
       }
 
@@ -230,14 +238,10 @@ export default async function handler(req, res) {
       }
     }
 
-    // 5. RÉSULTAT
-
     return res.status(200).json({
       count,
-      revenue: Number(revenue.toFixed(2)),
+      netSales: Number(netSales.toFixed(2)),
       currency: currencyCode || "EUR",
-      revenueType: "gross_order_total",
-      precision: "EXACT",
       start,
       end,
       timezone: "Europe/Paris"
