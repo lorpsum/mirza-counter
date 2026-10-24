@@ -1,7 +1,6 @@
 
 <!DOCTYPE html>
 <html lang="fr">
-
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -12,8 +11,7 @@
       box-sizing: border-box;
     }
 
-    html,
-    body {
+    html, body {
       margin: 0;
       padding: 0;
       min-height: 100%;
@@ -25,10 +23,10 @@
       display: flex;
       align-items: center;
       justify-content: center;
+      padding: 24px;
       background: #fff;
       color: #000;
       font-family: Arial, Helvetica, sans-serif;
-      padding: 24px;
     }
 
     .counter {
@@ -38,17 +36,40 @@
     }
 
     .label {
-      margin-bottom: 24px;
-      font-size: 18px;
+      font-size: 15px;
       font-weight: 500;
       letter-spacing: 4px;
+      margin-bottom: 18px;
+    }
+
+    #revenue {
+      font-size: clamp(42px, 11vw, 76px);
+      font-weight: 700;
+      line-height: 1.05;
+      overflow-wrap: anywhere;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .currency-label {
+      margin-top: 10px;
+      color: #777;
+      font-size: 10px;
+      letter-spacing: 2px;
+    }
+
+    .orders-block {
+      margin: 32px 0;
+    }
+
+    .orders-label {
+      font-size: 11px;
+      letter-spacing: 3px;
+      margin-bottom: 10px;
     }
 
     #count {
-      font-size: clamp(56px, 12vw, 80px);
-      line-height: 1;
-      font-weight: 700;
-      margin: 28px 0;
+      font-size: 30px;
+      font-weight: 600;
       font-variant-numeric: tabular-nums;
     }
 
@@ -67,26 +88,25 @@
     .date-field label {
       display: block;
       margin-bottom: 8px;
-      font-size: 11px;
+      font-size: 10px;
       letter-spacing: 2px;
-      text-transform: uppercase;
     }
 
     input[type="date"] {
       width: 100%;
       min-width: 0;
-      padding: 12px 8px;
+      padding: 12px 6px;
       border: 1px solid #000;
       border-radius: 0;
       background: #fff;
       color: #000;
       font-family: inherit;
-      font-size: 13px;
+      font-size: 12px;
     }
 
     button {
       width: 100%;
-      padding: 15px 12px;
+      padding: 15px 10px;
       border: 1px solid #000;
       border-radius: 0;
       background: #000;
@@ -107,44 +127,43 @@
     }
 
     #period {
-      margin-top: 18px;
-      font-size: 11px;
+      margin-top: 16px;
+      color: #777;
+      font-size: 10px;
       letter-spacing: 1px;
-      color: #555;
     }
 
     #error {
       margin-top: 16px;
-      font-size: 12px;
       color: #b00020;
+      font-size: 12px;
       overflow-wrap: anywhere;
     }
 
     @media (max-width: 400px) {
-      .label {
-        font-size: 15px;
-        letter-spacing: 3px;
-      }
-
       .dates {
         gap: 8px;
       }
 
       input[type="date"] {
-        font-size: 12px;
-        padding: 10px 4px;
+        font-size: 11px;
       }
     }
   </style>
 </head>
 
 <body>
-
   <main class="counter">
 
-    <div class="label">TOTAL ORDERS</div>
+    <div class="label">TOTAL REVENUE</div>
 
-    <div id="count">—</div>
+    <div id="revenue">—</div>
+    <div class="currency-label">GROSS ORDER REVENUE</div>
+
+    <div class="orders-block">
+      <div class="orders-label">TOTAL ORDERS</div>
+      <div id="count">—</div>
+    </div>
 
     <div class="dates">
       <div class="date-field">
@@ -158,9 +177,7 @@
       </div>
     </div>
 
-    <button id="submit" type="button">
-      COUNT ORDERS
-    </button>
+    <button id="submit" type="button">UPDATE COUNTER</button>
 
     <div id="period"></div>
     <div id="error" role="status" aria-live="polite"></div>
@@ -170,12 +187,12 @@
   <script>
     const startInput = document.getElementById("start");
     const endInput = document.getElementById("end");
+    const revenueElement = document.getElementById("revenue");
     const countElement = document.getElementById("count");
     const errorElement = document.getElementById("error");
     const periodElement = document.getElementById("period");
     const submitButton = document.getElementById("submit");
 
-    // Dates par défaut : mois en cours, en heure de Paris.
     function parisToday() {
       const parts = new Intl.DateTimeFormat("en-CA", {
         timeZone: "Europe/Paris",
@@ -185,6 +202,7 @@
       }).formatToParts(new Date());
 
       const values = {};
+
       parts.forEach(part => {
         values[part.type] = part.value;
       });
@@ -192,13 +210,17 @@
       return `${values.year}-${values.month}-${values.day}`;
     }
 
-    function firstDayOfMonth(date) {
-      return date.slice(0, 7) + "-01";
+    function formatMoney(amount, currency) {
+      return new Intl.NumberFormat("fr-FR", {
+        style: "currency",
+        currency: currency || "EUR",
+        maximumFractionDigits: 2
+      }).format(amount);
     }
 
     const today = parisToday();
 
-    startInput.value = firstDayOfMonth(today);
+    startInput.value = today.slice(0, 7) + "-01";
     endInput.value = today;
 
     async function loadOrders() {
@@ -209,8 +231,7 @@
       periodElement.textContent = "";
 
       if (!start || !end) {
-        errorElement.textContent =
-          "Please select both dates.";
+        errorElement.textContent = "Please select both dates.";
         return;
       }
 
@@ -222,13 +243,11 @@
 
       submitButton.disabled = true;
       submitButton.textContent = "LOADING...";
+      revenueElement.textContent = "…";
       countElement.textContent = "…";
 
       try {
-        const params = new URLSearchParams({
-          start,
-          end
-        });
+        const params = new URLSearchParams({ start, end });
 
         const response = await fetch(
           `/api/orders?${params.toString()}`,
@@ -238,38 +257,39 @@
         const data = await response.json();
 
         if (!response.ok || data.error) {
-          throw new Error(
-            data.error || "Unable to load orders."
-          );
+          throw new Error(data.error || "Unable to load orders.");
         }
 
+        const revenue = Number(data.revenue);
         const count = Number(data.count);
 
-        if (!Number.isFinite(count)) {
-          throw new Error("Invalid order count.");
+        if (!Number.isFinite(revenue) || !Number.isFinite(count)) {
+          throw new Error("Invalid Shopify response.");
         }
 
-        countElement.textContent =
-          count.toLocaleString("en-US");
+        revenueElement.textContent =
+          formatMoney(revenue, data.currency);
 
-        periodElement.textContent =
-          `${start} — ${end}`;
+        countElement.textContent =
+          count.toLocaleString("fr-FR");
+
+        periodElement.textContent = `${start} — ${end}`;
 
       } catch (error) {
         console.error("COUNTER ERROR:", error);
+        revenueElement.textContent = "—";
         countElement.textContent = "—";
         errorElement.textContent = error.message;
+
       } finally {
         submitButton.disabled = false;
-        submitButton.textContent = "COUNT ORDERS";
+        submitButton.textContent = "UPDATE COUNTER";
       }
     }
 
     submitButton.addEventListener("click", loadOrders);
 
-    // Charger automatiquement la période par défaut.
     loadOrders();
   </script>
-
 </body>
 </html>
