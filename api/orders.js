@@ -11,7 +11,7 @@ export default async function handler(req, res) {
       });
     }
 
-    // 1. RÉCUPÉRER LE TOKEN SHOPIFY
+    // 1. AUTHENTIFICATION SHOPIFY
 
     const tokenResponse = await fetch(
       `https://${shop}.myshopify.com/admin/oauth/access_token`,
@@ -30,15 +30,13 @@ export default async function handler(req, res) {
     );
 
     const tokenText = await tokenResponse.text();
-
     let tokenData;
 
     try {
       tokenData = JSON.parse(tokenText);
     } catch {
       return res.status(500).json({
-        error: "Invalid Shopify token response",
-        status: tokenResponse.status
+        error: "Invalid Shopify token response"
       });
     }
 
@@ -52,13 +50,11 @@ export default async function handler(req, res) {
 
     const accessToken = tokenData.access_token;
 
-    // 2. RÉCUPÉRER LES DATES DEMANDÉES
-    // Format attendu : YYYY-MM-DD
-    // Exemple : /api/orders?start=2026-09-01&end=2026-09-30
+    // 2. VALIDATION DES DATES
 
     const { start, end } = req.query || {};
 
-    const isValidDate = (value) => {
+    function isValidDate(value) {
       if (typeof value !== "string") return false;
       if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
 
@@ -66,12 +62,11 @@ export default async function handler(req, res) {
 
       return !Number.isNaN(date.getTime()) &&
         date.toISOString().slice(0, 10) === value;
-    };
+    }
 
     if (!isValidDate(start) || !isValidDate(end)) {
       return res.status(400).json({
-        error: "Please provide valid start and end dates",
-        example: "/api/orders?start=2026-09-01&end=2026-09-30"
+        error: "Please provide valid start and end dates"
       });
     }
 
@@ -81,82 +76,168 @@ export default async function handler(req, res) {
       });
     }
 
-    // 3. CONSTRUIRE LA PÉRIODE
-    // Dates interprétées en heure de Paris.
-    // La borne de fin est exclusive : on ajoute un jour à end.
+    // 3. CONVERSION DES DATES EN HEURE DE PARIS
+    // Gère automatiquement les changements d'heure été/hiver.
 
-    const startDate = new Date(`${start}T00:00:00+01:00`);
-    const endDate = new Date(`${end}T00:00:00+01:00`);
-    endDate.setUTCDate(endDate.getUTCDate() + 1);
+    function parisMidnight(dateString) {
+      const reference = new Date(`${dateString}T12:00:00Z`);
 
-    const isoDate = (date) => date.toISOString();
+      const parts = new Intl.DateTimeFormat("en-GB", {
+        timeZone: "Europe/Paris",
+        timeZoneName: "longOffset"
+      }).formatToParts(reference);
 
-    const startISO = isoDate(startDate);
-    const endISO = isoDate(endDate);
+      const offset = parts.find(
+        part => part.type === "timeZoneName"
+      )?.value;
 
-    // 4. COMPTER LES COMMANDES SHOPIFY
-
-    const shopifyResponse = await fetch(
-      `https://${shop}.myshopify.com/admin/api/2026-07/graphql.json`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Accept": "application/json",
-          "X-Shopify-Access-Token": accessToken
-        },
-        body: JSON.stringify({
-          query: `
-            query OrdersCount($query: String!) {
-              ordersCount(query: $query, limit: null) {
-                count
-                precision
-              }
-            }
-          `,
-          variables: {
-            query: `created_at:>=${startISO} created_at:<${endISO}`
-          }
-        })
+      if (!offset || offset === "GMT") {
+        return `${dateString}T00:00:00Z`;
       }
-    );
 
-    const shopifyText = await shopifyResponse.text();
-
-    let shopifyData;
-
-    try {
-      shopifyData = JSON.parse(shopifyText);
-    } catch {
-      return res.status(500).json({
-        error: "Invalid Shopify API response",
-        status: shopifyResponse.status,
-        details: shopifyText.substring(0, 500)
-      });
+      return `${dateString}T00:00:00${offset.replace("GMT", "")}`;
     }
 
-    if (!shopifyResponse.ok || shopifyData.errors) {
-      return res.status(500).json({
-        error: "Shopify API error",
-        status: shopifyResponse.status,
-        details: shopifyData.errors || shopifyData
-      });
+    const nextDay = new Date(`${end}T00:00:00Z`);
+    nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+
+    const endExclusive = nextDay.toISOString().slice(0, 10);
+
+    const startISO = new Date(
+      parisMidnight(start)
+    ).toISOString();
+
+    const endISO = new Date(
+      parisMidnight(endExclusive)
+    ).toISOString();
+
+    const searchQuery =
+      `created_at:>=${startISO} created_at:<${endISO}`;
+
+    // 4. RÉCUPÉRATION DE TOUTES LES COMMANDES
+    // 250 commandes par page, avec pagination Shopify.
+
+    let count = 0;
+    let revenue = 0;
+    let cursor = null;
+    let hasNextPage = true;
+    let currencyCode = null;
+
+    while (hasNextPage) {
+      const shopifyResponse = await fetch(
+        `https://${shop}.myshopify.com/admin/api/2026-07/graphql.json`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "X-Shopify-Access-Token": accessToken
+          },
+          body: JSON.stringify({
+            query: `
+              query OrdersForPeriod(
+                $query: String!,
+                $after: String
+              ) {
+                orders(
+                  first: 250,
+                  after: $after,
+                  query: $query,
+                  sortKey: CREATED_AT
+                ) {
+                  edges {
+                    cursor
+                    node {
+                      totalPriceSet {
+                        shopMoney {
+                          amount
+                          currencyCode
+                        }
+                      }
+                    }
+                  }
+                  pageInfo {
+                    hasNextPage
+                    endCursor
+                  }
+                }
+              }
+            `,
+            variables: {
+              query: searchQuery,
+              after: cursor
+            }
+          })
+        }
+      );
+
+      const shopifyText = await shopifyResponse.text();
+      let shopifyData;
+
+      try {
+        shopifyData = JSON.parse(shopifyText);
+      } catch {
+        return res.status(500).json({
+          error: "Invalid Shopify API response",
+          details: shopifyText.substring(0, 500)
+        });
+      }
+
+      if (!shopifyResponse.ok || shopifyData.errors) {
+        return res.status(500).json({
+          error: "Shopify API error",
+          status: shopifyResponse.status,
+          details: shopifyData.errors || shopifyData
+        });
+      }
+
+      const orders = shopifyData?.data?.orders;
+
+      if (!orders) {
+        return res.status(500).json({
+          error: "Shopify orders data not found"
+        });
+      }
+
+      for (const edge of orders.edges) {
+        const money = edge.node.totalPriceSet.shopMoney;
+        const amount = Number(money.amount);
+
+        if (!Number.isFinite(amount)) {
+          return res.status(500).json({
+            error: "Invalid order amount"
+          });
+        }
+
+        if (currencyCode && currencyCode !== money.currencyCode) {
+          return res.status(500).json({
+            error: "Orders use different shop currencies"
+          });
+        }
+
+        currencyCode = money.currencyCode;
+        revenue += amount;
+        count++;
+      }
+
+      hasNextPage = orders.pageInfo.hasNextPage;
+      cursor = orders.pageInfo.endCursor;
+
+      if (hasNextPage && !cursor) {
+        return res.status(500).json({
+          error: "Shopify pagination cursor missing"
+        });
+      }
     }
 
-    const result = shopifyData?.data?.ordersCount;
-
-    if (result?.count === undefined || result?.count === null) {
-      return res.status(500).json({
-        error: "Order count not found",
-        details: shopifyData
-      });
-    }
-
-    // 5. RENVOYER LE RÉSULTAT
+    // 5. RÉSULTAT
 
     return res.status(200).json({
-      count: Number(result.count),
-      precision: result.precision,
+      count,
+      revenue: Number(revenue.toFixed(2)),
+      currency: currencyCode || "EUR",
+      revenueType: "gross_order_total",
+      precision: "EXACT",
       start,
       end,
       timezone: "Europe/Paris"
